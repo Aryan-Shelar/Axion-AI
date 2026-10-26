@@ -3,6 +3,8 @@ import ParticleBackground from './ParticleBackground.jsx'
 import { Ctx, nav, initRules, initScans, initAudit, initNotes, initMembers, analyze, fixed, scoreOf } from './data.js'
 import { inp, btn, ghost, Card, ErrorBox } from './ui.jsx'
 import * as P from './pages.jsx'
+import { analyzeBrandContent } from "./services/api";
+
 
 const Logo = ({ size = 28 }) => <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden><path d="M20 3 38 37 22 31l-4-2 8 0-6-14L11 37 2 33z" fill="currentColor" /></svg>
 
@@ -64,8 +66,24 @@ export default function App() {
     const findings = analyze(text, rules), s = { id: Date.now(), title, type, text, author: user.name, date: new Date().toLocaleDateString(), status: 'Pending', findings, score: scoreOf(findings) }
     setScans(x => [s, ...x]); log('Ran scan', title); notify(`${title} scanned: ${findings.length} issue${findings.length === 1 ? '' : 's'} found`); return s
   }
+
+const runAIAnalysis = async (content) => {
+  try {
+    const result = await analyzeBrandContent(
+      "EQv2M5SHxNqQzlnHu40i",
+      content
+    );
+
+    console.log("AI Analysis Result:", result);
+    return result;
+  } catch (error) {
+    console.error("AI Analysis Failed:", error);
+    throw error;
+  }
+};
+
   const setStatus = (id, status) => { const s = scans.find(x => x.id === id); setScans(scans.map(x => x.id === id ? { ...x, status } : x)); log(status === 'Approved' ? 'Approved content' : status === 'Rejected' ? 'Rejected content' : 'Sent for review', s.title); if (status === 'In review') notify(`Approval requested for ${s.title}`) }
   const applyFix = (id, text) => { const s = scans.find(x => x.id === id), findings = analyze(text, rules); setScans(scans.map(x => x.id === id ? { ...x, text, findings, score: scoreOf(findings) } : x)); log('Accepted changes', s.title, { before: s.text, after: text }) }
   if (!user) return <><ParticleBackground /><Auth onLogin={setUser} /></>
-  return <Ctx.Provider value={{ user, setUser, page, sel, go, q, setQ, rules, setRules, scans, addScan, setStatus, applyFix, audit, log, notes, setNotes, members, setMembers }}><ParticleBackground /><Shell /></Ctx.Provider>
+  return <Ctx.Provider value={{ user, setUser, page, sel, go, q, setQ, rules, setRules, scans, addScan, setStatus, applyFix, audit, log, notes, setNotes, members, setMembers , runAIAnalysis }}><ParticleBackground /><Shell /></Ctx.Provider>
 }

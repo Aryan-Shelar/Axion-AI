@@ -9,16 +9,12 @@ from compliance import check_brand_compliance
 from flask import request
 from ai_analyzer import analyze_brand_content
 
-app = Flask(__name__)
 
-CORS(
-    app,
-    resources={
-        r"/api/*": {
-            "origins": ["http://localhost:5173"]
-        }
-    }
-)
+app = Flask(__name__)
+CORS(app, origins=[
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+])
 
 # Firebase Admin SDK setup
 BASE_DIR = Path(__file__).resolve().parent

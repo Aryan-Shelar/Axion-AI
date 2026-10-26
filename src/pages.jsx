@@ -16,16 +16,74 @@ export function Dashboard() {
 }
 
 export function Scanner() {
-  const { rules, addScan, go } = useContext(Ctx)
+  const { rules, addScan, go, runAIAnalysis } = useContext(Ctx)
   const [title, setTitle] = useState(''), [type, setType] = useState(types[0]), [text, setText] = useState('')
   const [busy, setBusy] = useState(false), [err, setErr] = useState(''), [res, setRes] = useState(null)
   const file = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { setText(String(r.result)); setTitle(t => t || f.name) }; r.onerror = () => setErr('Could not read that file. Upload a .txt or .md file, or paste the text.'); r.readAsText(f) }
-  const run = () => {
-    if (text.trim().length < 10) return setErr('Paste or upload at least a sentence of content to scan.')
-    setErr(''); setBusy(true)
-    setTimeout(() => { setRes(addScan({ title: title || 'Untitled content', type, text })); setBusy(false) }, 900)
+ 
+ 
+const run = async () => {
+  if (text.trim().length < 10) {
+    setErr('Paste or upload at least a sentence of content to scan.');
+    return;
   }
+
+  setErr('');
+  setBusy(true);
+
+  try {
+    const aiResult = await runAIAnalysis(text);
+
+    const localFindings = analyze(text, rules);
+
+    const aiIssues = (aiResult.issues || []).map((item, index) => ({
+      cat: item.category || 'AI Analysis',
+      sev: ['High', 'Medium', 'Low'].includes(item.severity)
+        ? item.severity
+        : 'Medium',
+      issue: item.issue || item.text || 'AI detected a potential issue',
+      fix: item.fix || 'Review this content against brand guidelines',
+      from: item.text || '',
+      to: '',
+      id: `ai-${index}`,
+    }));
+
+    const findings = [
+      ...localFindings,
+      ...aiIssues,
+    ];
+
+    const uniqueFindings = findings.filter((item, index, arr) =>
+      arr.findIndex(other =>
+        other.issue.toLowerCase() === item.issue.toLowerCase()
+      ) === index
+    );
+
+    const scan = addScan({
+      title: title || 'Untitled content',
+      type,
+      text,
+    });
+
+    const combinedScan = {
+      ...scan,
+      findings: uniqueFindings,
+      score: scoreOf(uniqueFindings),
+      aiResult,
+    };
+
+    setRes(combinedScan);
+  } catch (error) {
+    console.error('Compliance scan failed:', error);
+    setErr(error.message || 'AI analysis failed. Please try again.');
+  } finally {
+    setBusy(false);
+  }
+};
+
+ 
   return <Page title="AI Content Scanner" sub="Paste or upload content, select a content type, run a compliance scan and review highlighted problems.">
+
     <Card className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2"><input className={inp} placeholder="Content title" value={title} onChange={e => setTitle(e.target.value)} aria-label="Title" /><select className={inp} value={type} onChange={e => setType(e.target.value)} aria-label="Content type">{types.map(t => <option key={t}>{t}</option>)}</select></div>
       <textarea className={inp} rows={7} placeholder="Paste your content here…" value={text} onChange={e => setText(e.target.value)} aria-label="Content" />
@@ -33,9 +91,73 @@ export function Scanner() {
       <div className="flex flex-wrap items-center gap-3"><button className={btn} disabled={busy} onClick={run}>{busy ? 'Scanning…' : 'Run compliance scan'}</button><label className={`${ghost} cursor-pointer`}>Upload .txt / .md<input type="file" accept=".txt,.md,text/plain" hidden onChange={file} /></label></div>
     </Card>
     {busy && <div className="mt-4"><Skel /></div>}
-    {res && !busy && <Card className="mt-4"><div className="flex items-center justify-between"><h2 className="text-xl text-white">Scan complete: score {res.score}%</h2><button className={ghost} onClick={() => go('detail', res.id)}>Open details</button></div>
-      <p className="mt-4 leading-relaxed text-white"><Hl text={res.text} findings={res.findings} /></p>
-      {res.findings.length ? <ul className="mt-4 space-y-2">{res.findings.map((f, i) => <li key={i} className="flex flex-wrap items-center gap-2"><Badge s={f.sev} /><span className="text-white">{f.issue}</span><span>{f.fix}</span></li>)}</ul> : <p className="mt-4 text-white">No issues found against your current guidelines.</p>}</Card>}
+    
+{res && !busy && (
+  <Card className="mt-4">
+    <div className="flex items-center justify-between gap-3">
+      <h2 className="text-xl text-white">
+        Scan complete: score {res.score}%
+      </h2>
+      <button className={ghost} onClick={() => go('detail', res.id)}>
+        Open details
+      </button>
+    </div>
+
+    <p className="mt-2 text-sm">
+      Local rules and AI analysis results
+    </p>
+
+    <p className="mt-4 leading-relaxed text-white">
+      <Hl text={res.text} findings={res.findings} />
+    </p>
+
+    {res.findings.length ? (
+      <ul className="mt-4 space-y-3">
+        {res.findings.map((f, i) => (
+          <li key={f.id || i} className="rounded-lg bg-white/5 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge s={f.sev} />
+              <span className="text-sm">{f.cat}</span>
+            </div>
+            <p className="mt-2 text-white">{f.issue}</p>
+            <p className="mt-1">Recommended fix: {f.fix}</p>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <p className="mt-4 text-white">
+        No issues detected by local rules or AI analysis.
+      </p>
+    )}
+
+    {res.aiResult && (
+      <div className="mt-6 space-y-3 border-t border-white/10 pt-4">
+        <h3 className="text-lg text-white">AI Analysis</h3>
+
+        <p>Detected tone: {res.aiResult.tone}</p>
+        <p>Clarity score: {res.aiResult.clarity_score}/100</p>
+        <p>Brand alignment: {res.aiResult.brand_alignment_score}/100</p>
+
+        {res.aiResult.suggestions?.length > 0 && (
+          <>
+            <h4 className="text-white">AI Suggestions</h4>
+            <ul className="list-disc space-y-1 pl-5">
+              {res.aiResult.suggestions.map((suggestion, i) => (
+                <li key={i}>{suggestion}</li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        <h4 className="text-white">Suggested improved content</h4>
+        <p className="rounded-lg bg-white/5 p-3 text-white">
+          {res.aiResult.improved_content}
+        </p>
+      </div>
+    )}
+  </Card>
+)}
+
   </Page>
 }
 
