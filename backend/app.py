@@ -7,6 +7,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from compliance import check_brand_compliance
 from flask import request
+from ai_analyzer import analyze_brand_content
 
 app = Flask(__name__)
 
@@ -375,6 +376,56 @@ def update_brand_rules(brand_id):
         "brand_id": brand_id,
         "rules": updates
     }), 200
+
+@app.route("/api/brands/<brand_id>/ai-analyze", methods=["POST"])
+def ai_analyze_brand(brand_id):
+    data = request.get_json(silent=True) or {}
+    content = data.get("content", "")
+
+    if not isinstance(content, str) or not content.strip():
+        return jsonify({
+            "status": "error",
+            "message": "Please provide content to analyze."
+        }), 400
+
+    if len(content) > 12000:
+        return jsonify({
+            "status": "error",
+            "message": "Content must be 12000 characters or fewer."
+        }), 400
+
+    brand_ref = db.collection("brands").document(brand_id)
+    brand_snapshot = brand_ref.get()
+
+    if not brand_snapshot.exists:
+        return jsonify({
+            "status": "error",
+            "message": "Brand not found."
+        }), 404
+
+    brand = brand_snapshot.to_dict() or {}
+
+    try:
+        result = analyze_brand_content(content.strip(), brand)
+
+        return jsonify({
+            "status": "success",
+            "brand_id": brand_id,
+            "analysis": result
+        }), 200
+
+    except RuntimeError as exc:
+        return jsonify({
+            "status": "error",
+            "message": str(exc)
+        }), 503
+
+    except Exception:
+        app.logger.exception("Gemini brand analysis failed")
+        return jsonify({
+            "status": "error",
+            "message": "AI analysis failed. Check server logs."
+        }), 502
 
 
 
