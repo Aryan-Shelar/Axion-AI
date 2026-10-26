@@ -1,11 +1,12 @@
 
 from pathlib import Path
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
 from compliance import check_brand_compliance
+from flask import request
 
 app = Flask(__name__)
 
@@ -204,14 +205,21 @@ def delete_brand(brand_id):
     }), 200
 
 
+
 @app.post("/api/brands/<brand_id>/compliance-check")
 def brand_compliance_check(brand_id):
     data = request.get_json(silent=True) or {}
+    content = data.get("content", "").strip()
 
-    content = data.get("content", "")
+    if not content:
+        return jsonify({
+            "status": "error",
+            "message": "Content cannot be empty"
+        }), 400
 
-    # Fetch brand guidelines from Firestore
-    brand_doc = db.collection("brands").document(brand_id).get()
+    # Fetch brand from Firestore
+    brand_ref = db.collection("brands").document(brand_id)
+    brand_doc = brand_ref.get()
 
     if not brand_doc.exists:
         return jsonify({
@@ -221,15 +229,12 @@ def brand_compliance_check(brand_id):
 
     brand = brand_doc.to_dict()
 
-    prohibited_words = brand.get("prohibited_words", [])
-    required_keywords = brand.get("required_keywords", [])
-    tone_of_voice = brand.get("tone_of_voice", "professional")
-
+    # Run compliance checks
     result = check_brand_compliance(
         content=content,
-        tone_of_voice=tone_of_voice,
-        prohibited_words=prohibited_words,
-        required_keywords=required_keywords
+        tone_of_voice=brand.get("tone_of_voice", "professional"),
+        prohibited_words=brand.get("prohibited_words", []),
+        required_keywords=brand.get("required_keywords", [])
     )
 
     if result.get("status") == "error":
@@ -237,7 +242,141 @@ def brand_compliance_check(brand_id):
 
     result["brand_id"] = brand_id
 
+    # Save report to Firestore
+    report_data = {
+        "brand_id": brand_id,
+        "content": content,
+        "compliance_score": result["compliance_score"],
+        "is_compliant": result["is_compliant"],
+        "passed_checks": result["passed_checks"],
+        "violations": result["violations"],
+        "suggestions": result["suggestions"],
+        "created_at": firestore.SERVER_TIMESTAMP
+    }
+
+    report_ref = (
+        db.collection("brands")
+        .document(brand_id)
+        .collection("compliance_reports")
+        .document()
+    )
+
+    report_ref.set(report_data)
+
+    result["report_id"] = report_ref.id
+
     return jsonify(result), 200
+
+
+@app.get("/api/brands/<brand_id>/compliance-history")
+def get_compliance_history(brand_id):
+    brand_ref = db.collection("brands").document(brand_id)
+
+    if not brand_ref.get().exists:
+        return jsonify({
+            "status": "error",
+            "message": "Brand not found"
+        }), 404
+
+    reports_ref = (
+        brand_ref.collection("compliance_reports")
+        .order_by("created_at", direction=firestore.Query.DESCENDING)
+        .limit(50)
+    )
+
+    reports = []
+
+    for doc in reports_ref.stream():
+        report = doc.to_dict()
+
+        # Convert Firestore timestamp for JSON response
+        created_at = report.get("created_at")
+        report["created_at"] = (
+            created_at.isoformat() if created_at else None
+        )
+
+        report["report_id"] = doc.id
+        reports.append(report)
+
+    return jsonify({
+        "status": "success",
+        "brand_id": brand_id,
+        "total": len(reports),
+        "reports": reports
+    }), 200
+
+@app.put("/api/brands/<brand_id>/rules")
+def update_brand_rules(brand_id):
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict) or not data:
+        return jsonify({
+            "status": "error",
+            "message": "JSON request body is required"
+        }), 400
+
+    allowed_fields = {
+        "prohibited_words",
+        "required_keywords",
+        "tone_of_voice"
+    }
+
+    updates = {
+        key: value
+        for key, value in data.items()
+        if key in allowed_fields
+    }
+
+    if not updates:
+        return jsonify({
+            "status": "error",
+            "message": "Provide prohibited_words, required_keywords, or tone_of_voice"
+        }), 400
+
+    for field in ("prohibited_words", "required_keywords"):
+        if field in updates:
+            value = updates[field]
+
+            if (
+                not isinstance(value, list)
+                or not all(isinstance(item, str) and item.strip() for item in value)
+            ):
+                return jsonify({
+                    "status": "error",
+                    "message": f"{field} must be a list of non-empty strings"
+                }), 400
+
+            updates[field] = [item.strip() for item in value]
+
+    if "tone_of_voice" in updates:
+        tone = updates["tone_of_voice"]
+
+        if not isinstance(tone, str) or not tone.strip():
+            return jsonify({
+                "status": "error",
+                "message": "tone_of_voice must be a non-empty string"
+            }), 400
+
+        updates["tone_of_voice"] = tone.strip()
+
+    brand_ref = db.collection("brands").document(brand_id)
+
+    if not brand_ref.get().exists:
+        return jsonify({
+            "status": "error",
+            "message": "Brand not found"
+        }), 404
+
+    brand_ref.update(updates)
+
+    return jsonify({
+        "status": "success",
+        "message": "Brand rules updated successfully",
+        "brand_id": brand_id,
+        "rules": updates
+    }), 200
+
+
 
 
 
