@@ -6,3 +6,7 @@ dist/
 .vscode/
 .DS_Store
 Thumbs.db
+backend/serviceAccountKey.json
+backend/.env
+backend/.venv/
+backend/__pycache__/
