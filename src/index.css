@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 76px;
+  min-width: 320px;
+  background: #161616;
+}
+
+body {
+  @apply bg-ink text-silver font-sans antialiased;
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  touch-action: manipulation;
+}
+
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+textarea {
+  resize: vertical;
+}
+
+::selection {
+  background: #E10600;
+  color: #fff;
+}
+
+:focus-visible {
+  outline: 2px solid #E10600;
+  outline-offset: 2px;
+}
+
+/* Keep long titles, tables and form content usable on narrow screens. */
+#root {
+  min-height: 100vh;
+  isolation: isolate;
+}
+
+canvas[aria-hidden="true"] {
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  html {
+    scroll-padding-top: 64px;
+  }
+
+  main {
+    overflow-wrap: anywhere;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
