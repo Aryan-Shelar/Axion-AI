@@ -1,20 +1,21 @@
-
+﻿
 import json
 import os
 import logging
 
+from pathlib import Path
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
+import urllib.request
+import urllib.error
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
 logger = logging.getLogger(__name__)
 
-API_KEY = os.getenv("GEMINI_API_KEY")
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
-
-client = genai.Client(api_key=API_KEY) if API_KEY else None
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+MODEL_NAME = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 SCORE_FIELDS = (
     "tone_score",
@@ -131,7 +132,7 @@ def _validate_analysis(result):
 
 def analyze_brand_content(content, brand):
     """
-    Analyze marketing content against a brand profile using Gemini.
+    Analyze marketing content against a brand profile using Groq.
 
     Preserves the existing interface:
         analyze_brand_content(content, brand)
@@ -139,9 +140,9 @@ def analyze_brand_content(content, brand):
     Returns the JSON structure expected by the React dashboard.
     """
 
-    if not client:
+    if not GROQ_API_KEY:
         raise RuntimeError(
-            "GEMINI_API_KEY is missing. Add it to your backend .env file."
+            "GROQ_API_KEY is missing. Check backend/.env."
         )
 
     if not isinstance(content, str):
@@ -284,26 +285,65 @@ Return JSON only. Do not include Markdown fences or commentary.
 """
 
     try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.2,
-            ),
+        if not GROQ_API_KEY:
+            raise RuntimeError("GROQ_API_KEY is missing. Check backend/.env.")
+
+        payload = {
+            "model": MODEL_NAME,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are AXION AI, a brand governance analyst. "
+                        "Follow the analysis instructions and return valid JSON only."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+        }
+
+        request = urllib.request.Request(
+            GROQ_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
         )
 
-        response_text = response.text
+        with urllib.request.urlopen(request, timeout=45) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
 
+        choices = response_data.get("choices", [])
+        if not choices:
+            raise RuntimeError("Groq returned no analysis choices.")
+
+        response_text = choices[0].get("message", {}).get("content", "")
         if not response_text or not response_text.strip():
-            raise RuntimeError("Gemini returned an empty response")
+            raise RuntimeError("Groq returned an empty response.")
 
         result = json.loads(response_text)
-
         return _validate_analysis(result)
 
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="replace")
+        logger.error("Groq API HTTP %s: %s", exc.code, error_body[:1000])
+        raise RuntimeError(
+            f"Groq API request failed (HTTP {exc.code}). "
+            "Check the API key, model name, and API limits."
+        ) from exc
+
+    except urllib.error.URLError as exc:
+        logger.exception("Could not connect to Groq")
+        raise RuntimeError(
+            "Could not connect to Groq. Check your internet connection."
+        ) from exc
+
     except json.JSONDecodeError as exc:
-        logger.exception("Gemini returned invalid JSON")
+        logger.exception("AI returned invalid JSON")
         raise RuntimeError(
             "AI analysis returned an invalid response. Please try again."
         ) from exc
@@ -312,8 +352,9 @@ Return JSON only. Do not include Markdown fences or commentary.
         raise
 
     except Exception as exc:
-        logger.exception("AI content analysis failed")
+        logger.exception("Groq content analysis failed")
         raise RuntimeError(
-            "AI analysis failed. Check your Gemini configuration "
-            "and backend logs, then try again."
+            "AI analysis failed. Check the backend logs and try again."
         ) from exc
+
+
