@@ -2,11 +2,11 @@
 import json
 import os
 import logging
+import urllib.request
+import urllib.error
 
 from pathlib import Path
 from dotenv import load_dotenv
-import urllib.request
-import urllib.error
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
@@ -56,10 +56,10 @@ def _safe_string_list(value):
 
 
 def _validate_analysis(result):
-    """Validate Gemini's response against the dashboard schema."""
+    """Validate Groq's response against the dashboard schema."""
 
     if not isinstance(result, dict):
-        raise ValueError("Gemini returned an invalid JSON object")
+        raise ValueError("Groq returned an invalid JSON object")
 
     validated = {
         "tone": result.get("tone"),
@@ -123,8 +123,18 @@ def _validate_analysis(result):
         if isinstance(suggestion, str) and suggestion.strip()
     ]
 
-    validated["issues"] = clean_issues
-    validated["suggestions"] = clean_suggestions
+    # Bound model-generated text before returning it to the frontend.
+    validated["tone"] = validated["tone"].strip()[:300]
+    validated["improved_content"] = validated["improved_content"][:12000]
+
+    for issue in clean_issues:
+        for field in ISSUE_FIELDS:
+            issue[field] = issue[field][:2000]
+
+    validated["issues"] = clean_issues[:100]
+    validated["suggestions"] = [
+        suggestion[:500] for suggestion in clean_suggestions[:12]
+    ]
 
     # Return only the fields expected by the current frontend.
     return validated
@@ -285,9 +295,6 @@ Return JSON only. Do not include Markdown fences or commentary.
 """
 
     try:
-        if not GROQ_API_KEY:
-            raise RuntimeError("GROQ_API_KEY is missing. Check backend/.env.")
-
         payload = {
             "model": MODEL_NAME,
             "messages": [
@@ -318,10 +325,12 @@ Return JSON only. Do not include Markdown fences or commentary.
             response_data = json.loads(response.read().decode("utf-8"))
 
         choices = response_data.get("choices", [])
+
         if not choices:
             raise RuntimeError("Groq returned no analysis choices.")
 
         response_text = choices[0].get("message", {}).get("content", "")
+
         if not response_text or not response_text.strip():
             raise RuntimeError("Groq returned an empty response.")
 
@@ -331,6 +340,7 @@ Return JSON only. Do not include Markdown fences or commentary.
     except urllib.error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
         logger.error("Groq API HTTP %s: %s", exc.code, error_body[:1000])
+
         raise RuntimeError(
             f"Groq API request failed (HTTP {exc.code}). "
             "Check the API key, model name, and API limits."
@@ -338,12 +348,14 @@ Return JSON only. Do not include Markdown fences or commentary.
 
     except urllib.error.URLError as exc:
         logger.exception("Could not connect to Groq")
+
         raise RuntimeError(
             "Could not connect to Groq. Check your internet connection."
         ) from exc
 
     except json.JSONDecodeError as exc:
         logger.exception("AI returned invalid JSON")
+
         raise RuntimeError(
             "AI analysis returned an invalid response. Please try again."
         ) from exc
@@ -353,8 +365,7 @@ Return JSON only. Do not include Markdown fences or commentary.
 
     except Exception as exc:
         logger.exception("Groq content analysis failed")
+
         raise RuntimeError(
             "AI analysis failed. Check the backend logs and try again."
         ) from exc
-
-

@@ -417,14 +417,11 @@ def ai_analyze_brand(brand_id):
         }), 503
 
     except Exception:
-        app.logger.exception("Gemini brand analysis failed")
+        app.logger.exception("Groq brand analysis failed")
         return jsonify({
             "status": "error",
             "message": "AI analysis failed. Check server logs."
         }), 502
-
-
-
 
 
 if __name__ == "__main__":

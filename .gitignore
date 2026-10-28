@@ -10,3 +10,5 @@ backend/serviceAccountKey.json
 backend/.env
 backend/.venv/
 backend/__pycache__/
+
+.venv311/
