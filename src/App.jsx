@@ -62,10 +62,27 @@ export default function App() {
   const log = (action, detail, extra = {}) => setAudit(a => [{ t: new Date().toLocaleString(), who: user ? user.name : 'You', action, detail, ...extra }, ...a])
   const notify = m => setNotes(n => [{ m, read: false }, ...n])
   const go = (p, id = null) => { setPage(p); setSel(id); setQ(''); window.scrollTo(0, 0) }
-  const addScan = ({ title, type, text }) => {
-    const findings = analyze(text, rules), s = { id: Date.now(), title, type, text, author: user.name, date: new Date().toLocaleDateString(), status: 'Pending', findings, score: scoreOf(findings) }
-    setScans(x => [s, ...x]); log('Ran scan', title); notify(`${title} scanned: ${findings.length} issue${findings.length === 1 ? '' : 's'} found`); return s
-  }
+  const addScan = ({ title, type, text, findings: suppliedFindings }) => {
+  const findings = suppliedFindings ?? analyze(text, rules);
+
+  const s = {
+    id: Date.now(),
+    title,
+    type,
+    text,
+    author: user.name,
+    date: new Date().toLocaleDateString(),
+    status: 'Pending',
+    findings,
+    score: scoreOf(findings),
+  };
+
+  setScans(x => [s, ...x]);
+  log('Ran scan', title);
+  notify(`${title} scanned: ${findings.length} issue${findings.length === 1 ? '' : 's'} found`);
+
+  return s;
+};
 
 const runAIAnalysis = async (content) => {
   try {

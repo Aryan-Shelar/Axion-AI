@@ -63,6 +63,7 @@ const run = async () => {
       title: title || 'Untitled content',
       type,
       text,
+      findings: uniqueFindings,
     });
 
     const combinedScan = {
