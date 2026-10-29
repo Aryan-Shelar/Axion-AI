@@ -1,358 +1,104 @@
-<<<<<<< HEAD
-# AXION AI — React + Vite Frontend
+# AXION AI — Brand Governance Platform
 
-A React single-page frontend for the AXION AI brand-governance dashboard. It uses Vite, Tailwind CSS, and client-side demo data.
+## Local validation and configuration
 
-## Requirements
+1. Copy `.env.example` to `.env` and set `VITE_API_BASE_URL`.
+2. Copy `backend/.env.example` to `backend/.env`; provide a valid Firebase Admin service account outside version control and a Gemini API key.
+3. Install frontend dependencies with `npm install`, then run `npm test` and `npm run build`.
+4. Install backend dependencies with `pip install -r backend/requirements.txt` and run the Flask app from `backend/`.
+5. Check `/api/health` for process liveness and `/api/ready` for Firestore readiness. Configure `CORS_ORIGINS` to your exact deployed frontend origin(s).
 
-- Node.js 18 or newer (Node.js 20 LTS is a good choice)
-- npm
-- VS Code (optional, recommended)
+## Security / release checklist
 
-## Run locally on Windows
+- The Flask API verifies Firebase ID tokens on protected routes and applies server-side role permissions. Brand-specific API calls require membership for that exact brand ID.
+- `firestore.rules` is configured for the named `axionai` database via `firebase.json`. It denies direct browser access to brand data and user role records, scopes scans/company profiles to their owner, restricts scan approvals to a reviewer/brand-manager membership for the scan's brand (or platform Admin), and makes browser audit logs append-only.
+- **Deploy and verify the rules before relying on them.** From a trusted environment with Firebase CLI access, run `firebase deploy --only firestore:rules`. Confirm the target project/database in Firebase Console first. Rules are not active merely because the file exists in this repository.
+- Role records are trusted admin data at `users/{firebase_auth_uid}`. Never allow a normal client to create or edit its own role record.
+- Browser-created audit events are owner-scoped and append-only, but a client can still submit a fabricated event. For compliance-grade tamper evidence, move audit writes to a trusted backend endpoint and consider immutable export/storage.
+- Do not commit `.env`, service-account JSON files, or secrets. Rotate any secret that was ever committed or shared.
+- AI and local-rule findings are advisory, not certified compliance determinations. Scores are heuristics and require human review.
 
-1. Extract this project folder.
-2. Open the `axion-ai` folder in VS Code.
-3. Open **Terminal → New Terminal**.
-4. Run:
+## Evidence retrieval and traceability
 
-```bash
-npm install
-npm run dev
+Claim Detective now supports optional Gemini embedding retrieval (`ENABLE_SEMANTIC_RETRIEVAL=true`, `GEMINI_EMBEDDING_MODEL=gemini-embedding-001`) combined with lexical/concept matching. Approved-entry embeddings are cached in process memory by entry ID and content hash. If embedding calls fail, the backend falls back to transparent hybrid lexical/concept retrieval so scans can continue. Set `ENABLE_SEMANTIC_RETRIEVAL=false` to disable embeddings.
+
+Retrieval metadata includes the method and ranking score. The ranking score is **not** a confidence score and does not prove a claim. Claim assessments must cite only evidence IDs associated with that exact claim. PDF uploads preserve page-level excerpts when available; the UI displays the matched passage, source document and page number. Other source types may not have reliable page metadata.
+
+Semantic retrieval requires a working Gemini API key and network access. It has not been live-verified against your production Firebase/Gemini project in this code-editing environment.
+
+
+## Brand DNA knowledge base (prototype)
+
+The Company Profile screen includes a knowledge library for backend brands. Each entry has a title, type (`fact`, `terminology`, `guideline`, `reference`, or `asset`), content, optional source URL and tags, and a status (`draft`, `approved`, or `archived`). New entries are drafts; a person must approve them before they can be considered by AI analysis.
+
+Knowledge entries are stored under `brands/{brand_id}/knowledge_base/{entry_id}` in Firestore. The API exposes `GET` and `POST /api/brands/{brand_id}/knowledge`, `PUT` and `DELETE /api/brands/{brand_id}/knowledge/{entry_id}`. AI analysis retrieves only approved entries, using per-claim evidence retrieval and optional Gemini embeddings combined with transparent lexical/concept ranking. The response includes source IDs and retrieval metadata.
+
+Current limitations: source URLs are stored but not fetched or independently verified; embedding retrieval depends on Gemini availability and falls back to hybrid lexical/concept matching; only backend brands can use this library. Verify live role assignments and deploy the included Firestore rules before public deployment.
+
+
+## Claim Detective with evidence retrieval (prototype)
+
+The AI analysis endpoint now runs a Claim Detective pass before calling Gemini:
+
+1. `backend/claim_detective.py` extracts likely factual or high-risk sentences using transparent cues (for example guarantees, superlatives, numeric claims, warranties, prices, and performance claims).
+2. For each candidate, it retrieves relevant **approved** knowledge entries from that brand's `knowledge_base` collection. Draft and archived entries are excluded.
+3. Gemini receives the candidate claims, retrieved evidence, and a claim-to-evidence ID map. It returns `claim_assessments` with a verdict (`supported`, `contradicted`, `needs_verification`, or `not_assessed`), explanation, evidence IDs, and confidence.
+4. The backend validates verdicts and removes evidence IDs that were not retrieved for that exact claim. A `supported` or `contradicted` verdict without a valid evidence ID is downgraded to `needs_verification`.
+5. The scanner UI displays each assessment and its retrieved approved knowledge sources.
+
+**Important limits:** claim extraction is heuristic and can miss claims or select irrelevant sentences. Retrieval uses optional embeddings plus hybrid lexical/concept ranking, with a deterministic fallback. The model's verdict is an assistive assessment, not proof of truth; a source URL is not independently fetched or verified. If evidence is missing, the system should say `needs_verification`, not infer falsity. Keep human review in the workflow.
+
+Run backend unit tests from the project root:
+
+```powershell
+python tests/knowledge_base.test.py
+python tests/claim_detective.test.py
 ```
 
-5. Open the local URL printed by Vite, usually `http://localhost:5173`.
+## Document upload and extraction
 
-## Production build
+The Brand DNA knowledge base can accept `.txt`, `.md`, `.pdf`, `.docx`, and common image formats. Extracted text is saved as a **Draft** knowledge entry; a person must review and approve it before it can be used as approved evidence. Uploads are limited to 10 MB and extracted knowledge text is capped at 6,000 characters.
 
-```bash
-npm run build
-npm run preview
+Install backend packages from `backend/requirements.txt`. Image OCR and OCR fallback for scanned PDFs require the Tesseract OCR application to be installed on the backend host and available on `PATH` (the Python `pytesseract` package alone is not the OCR engine). PDFs with embedded text and DOCX files do not require Tesseract.
+
+## Enforced roles and access control (Feature 11)
+
+The Flask API now verifies Firebase ID tokens on protected routes and denies requests without a valid bearer token. Authorization is checked on the server, not trusted from UI state. Brand-specific endpoints require membership for that exact brand, and the brand-list endpoint only returns brands assigned to the caller. Unknown endpoints are denied by default.
+
+### Provisioning a user
+
+After the person signs in once with Firebase Authentication, an administrator must create a Firestore document at `users/{firebase_auth_uid}` in the same `axionai` Firestore database. Use one of these shapes:
+
+Platform administrator (global access, use sparingly):
+
+```json
+{"platform_role": "Admin", "brand_roles": {}}
 ```
 
-The production files are created in `dist/`.
+Brand-scoped user (recommended):
 
-## Main files
-
-- `src/App.jsx` — application shell, demo sign-in, navigation and shared state
-- `src/pages.jsx` — dashboard and feature pages
-- `src/ui.jsx` — reusable UI components
-- `src/data.js` — sample brand rules, scans, audit events and analysis logic
-- `src/index.css` — Tailwind entry point and responsive global styles
-- `src/ParticleBackground.jsx` — animated background
-- `tailwind.config.js` — theme colors and font family
-
-## Important limitations
-
-- Sign-in is a **frontend demo only**. It accepts a valid-looking email and a password of at least six characters; it does not authenticate users securely.
-- Dashboard content and changes are stored in React state. They are not persisted to a database and may reset when the page is refreshed.
-- The content scanner uses local rule-based checks in `src/data.js`; it does not call an AI model or backend yet.
-- Do not enter real passwords or sensitive business information into this demo.
-
-## Next production steps
-
-1. Connect a backend API and database for accounts, scans, guidelines and audit logs.
-2. Implement real authentication and role-based permissions.
-3. Add persistent storage and server-side validation.
-4. Connect an AI service for content analysis, with secrets kept on the backend.
-5. Test the layout on mobile, tablet and desktop after each UI change.
-=======
-
-# AXION AI
-### AI-Powered Brand Governance Platform
-
-**Search the Truth. Build the Trust.**
-
----
-
-## 🚀 Project Overview
-
-AXION AI is an AI-powered brand governance platform designed to help organizations maintain brand consistency, content accuracy, and trust across digital communication.
-
-In today's digital environment, content is generated by employees, agencies, and AI tools across multiple platforms. Maintaining consistent brand messaging and verifying content before publication can be challenging.
-
-AXION AI aims to simplify this process by analyzing content against approved brand guidelines, identifying potential inconsistencies, flagging claims that may require supporting evidence, and providing AI-powered correction suggestions.
-
-The platform combines Artificial Intelligence, brand governance, content analysis, and human approval into a centralized workflow.
-
----
-
-## 🎯 Problem Statement
-
-Organizations face several challenges while managing brand communication:
-
-- Inconsistent brand tone and messaging.
-- Incorrect or inconsistent terminology.
-- Content that does not follow approved brand guidelines.
-- Claims that may lack supporting evidence.
-- Time-consuming manual content review.
-- Difficulty maintaining brand consistency across multiple channels.
-
-These challenges can affect brand credibility, communication quality, and content review efficiency.
-
----
-
-## 💡 Our Solution
-
-AXION AI introduces an AI-assisted content governance workflow that helps organizations review content before publication.
-
-The platform is designed to:
-
-- Analyze content against approved brand guidelines.
-- Identify potential brand tone and terminology inconsistencies.
-- Flag claims that may require supporting evidence.
-- Provide explanations for detected issues.
-- Suggest brand-aligned content corrections.
-- Support human review and approval.
-- Maintain content review history.
-
-AXION AI focuses on helping organizations make more informed content decisions while keeping final approval under human control.
-
----
-
-## ✨ Key Features
-
-### 1. Brand DNA
-A centralized brand profile containing brand guidelines, tone of voice, approved terminology, and reference information.
-
-### 2. AI Content Analysis
-Analyzes submitted content to identify potential inconsistencies with configured brand guidelines.
-
-### 3. Claim Detective
-Flags claims that may require supporting evidence and checks them against available approved references.
-
-### 4. AI Correction Assistant
-Provides suggestions to improve content while maintaining its intended meaning and brand tone.
-
-### 5. Content Review Workflow
-Supports the review process from content submission to final decision.
-
-### 6. Human Approval
-Allows authorized reviewers to approve, reject, or request changes.
-
-### 7. Review History
-Maintains records of content reviews and approval decisions.
-
----
-
-## ⚙️ How It Works
-
-1. **Configure Brand DNA**  
-   Add brand guidelines, tone, terminology, and approved references.
-
-2. **Submit Content**  
-   Upload or provide content for review.
-
-3. **AI-Powered Analysis**  
-   Analyze content against the selected brand information.
-
-4. **Identify Potential Issues**  
-   Detect possible brand inconsistencies and claims that may need evidence.
-
-5. **Generate Suggestions**  
-   Provide explanations and suggested corrections.
-
-6. **Human Review**  
-   An authorized reviewer evaluates the findings.
-
-7. **Final Decision**  
-   Approve, reject, or request changes.
-
-8. **Review History**  
-   Maintain a record of the review process.
-
----
-
-## 🏗️ Technology Stack
-
-| Component | Technology |
-|---|---|
-| Frontend | React.js |
-| Frontend Tooling | Vite |
-| Styling | CSS / Tailwind CSS |
-| Backend | Python |
-| Backend Framework | FastAPI |
-| API Communication | REST APIs |
-| AI Integration | Large Language Model (LLM) |
-| AI Retrieval | Retrieval-Augmented Generation (RAG) |
-| Database | PostgreSQL or Firebase/Firestore |
-| Authentication | Selected authentication provider |
-| Version Control | Git and GitHub |
-
-*The final database, AI provider, and authentication services depend on the team's implementation.*
-
----
-
-## 🧠 AI Innovation
-
-AXION AI combines brand governance with AI-assisted content analysis.
-
-Its proposed AI capabilities include:
-
-- Brand tone and consistency analysis.
-- Terminology checking.
-- Potential unsupported-claim identification.
-- Reference-based evidence review.
-- Context-aware correction suggestions.
-- Explainable content review findings.
-
-The platform is designed to use approved brand information as context for analysis rather than relying only on generic AI responses.
-
-AI-generated findings are advisory and should not be treated as verified facts without appropriate review.
-
----
-
-## 🖥️ System Architecture
-
-```text
-             AXION AI PLATFORM
-                     |
-             React Frontend
-                     |
-                REST APIs
-                     |
-             FastAPI Backend
-                     |
-       +-------------+-------------+
-       |             |             |
-   AI Service     Database     Authentication
-       |             |             |
-       +-------------+-------------+
-                     |
-             Analysis Results
-                     |
-             Human Approval
-                     |
-              Review History
+```json
+{"platform_role": "", "brand_roles": {"YOUR_BRAND_DOCUMENT_ID": "Brand manager"}}
 ```
 
----
+Supported brand roles are `Brand manager`, `Reviewer`, and `Editor`. Add each allowed brand ID to `brand_roles`; absence of a mapping means no access. The Firebase Auth UID, not an email or display name, is the `users` document ID. Never let a normal client create or edit its own role record. Provision roles through trusted admin tooling or the Firebase Console.
 
-## 👥 Team Contributions
+### Permission summary
 
-AXION AI is developed through collaborative work across frontend development, backend engineering, AI integration, and project testing.
+- **Admin**: platform-wide access, including creating/deleting brands.
+- **Brand manager**: manage brand settings/rules and knowledge; approve knowledge; run analysis and visual checks.
+- **Reviewer**: read brand data, run analysis, approve/unapprove knowledge, view history, and run visual checks.
+- **Editor**: read knowledge, create drafts/upload documents, run analysis and visual checks; cannot approve or delete knowledge or change brand rules.
 
-### Frontend Development
-- React-based user interface.
-- Dashboard and brand management screens.
-- Content submission interface.
-- AI analysis result presentation.
-- Correction and approval screens.
-- Frontend-backend integration.
+New knowledge entries are forced to `draft` server-side. Only roles with `knowledge:approve` can change knowledge status. Frontend API calls attach the signed-in Firebase ID token automatically.
 
-### Backend Development
-- FastAPI application development.
-- REST API implementation.
-- Request validation.
-- Database integration.
-- AI service communication.
-- Authentication and authorization.
-- Review management and history.
+### Test and rollout notes
 
-### AI/ML Development
-- LLM integration.
-- Brand consistency analysis.
-- Claim review logic.
-- Reference retrieval.
-- Correction suggestions.
-- AI output evaluation.
-
-### Integration and Testing
-- Frontend and backend integration.
-- Workflow testing.
-- Sample data preparation.
-- Bug identification.
-- Documentation.
-- Hackathon demonstration preparation.
-
-*Actual member names and individual contributions should be added according to the work completed by each team member.*
-
----
-
-## 🔐 Responsible AI & Security
-
-AXION AI follows a human-centered approach to AI-assisted content governance.
-
-- AI findings are advisory.
-- Final approval remains with authorized human reviewers.
-- Evidence should be grounded in available approved references.
-- Missing or uncertain evidence should be clearly identified.
-- AI-generated information should not automatically be considered verified.
-- API keys and credentials must be protected.
-- User access and review data should be appropriately secured.
-
----
-
-## 🎯 Project Scope
-
-### Initial Scope
-- Brand guideline management.
-- Content submission.
-- AI-powered brand analysis.
-- Terminology and tone checking.
-- Potential unsupported-claim detection.
-- Correction suggestions.
-- Human review and approval.
-
-### Future Scope
-- Visual brand consistency checking.
-- Logo and image analysis.
-- Accessibility review.
-- Multi-brand management.
-- Advanced analytics.
-- OCR and image processing.
-- Content platform integrations.
-
----
-
-## 🧪 Testing Approach
-
-The project testing approach includes:
-
-- Brand consistency scenarios.
-- Terminology validation.
-- Claim and evidence review scenarios.
-- AI suggestion evaluation.
-- API integration testing.
-- Review workflow testing.
-- Authentication and access testing.
-
-Testing results and performance metrics will be included after the relevant functionality has been implemented and evaluated.
-
----
-
-## 🌟 Expected Impact
-
-AXION AI aims to help organizations:
-
-- Improve brand consistency.
-- Identify potential content issues earlier.
-- Reduce repetitive manual review.
-- Support evidence-aware content decisions.
-- Improve transparency in content review.
-- Maintain a structured approval process.
-
-The platform is designed to support content teams, marketing teams, brand managers, agencies, and organizations using AI-generated content.
-
----
-
-## 🏆 Why AXION AI?
-
-AXION AI brings together brand governance, AI-powered content analysis, evidence-aware review, and human approval in one proposed platform.
-
-Instead of focusing only on content generation, AXION AI focuses on helping organizations evaluate content before publication.
-
-Its approach combines AI assistance with brand-specific context and human decision-making to support more consistent and trustworthy communication.
-
----
+Run `python tests/test_access_control.py` from the project root. This is a baseline RBAC implementation; verify Firestore rules for client-side collections (`scans`, `auditLogs`, and `companyProfiles`) separately. The Team Members & Roles panel still contains profile-level roster UI and is not the source of backend permissions. Backend role assignment is authoritative. Test with separate Firebase accounts and confirm cross-brand requests return HTTP 403 before deploying.
 
 
+## Visual verification and business reporting
 
-## 📄 Conclusion
+Visual checks record image dimensions, aspect ratio, sampled palette colours, deterministic rule-based flags, and a separate rule-based score in addition to Gemini's advisory score. The deterministic score only covers the explicit heuristics and is not an overall compliance guarantee. Exact logo identity remains `not_verified` until a reference-logo asset comparison is configured.
 
-AXION AI aims to transform content review into a more structured, intelligent, and brand-aware process.
-
-By combining AI-powered analysis, approved brand references, correction suggestions, and human approval, the platform seeks to help organizations maintain consistent and trustworthy communication.
-
-**AXION AI — Search the Truth. Build the Trust.**
->>>>>>> origin/main
+Reports & Analytics includes saved-scan trends, pass rate, recurring findings, an approximate correction signal based on audit events, average review time where timestamps are available, and CSV export. Correction rate and review time are proxies; incomplete or legacy timestamps can leave metrics unavailable, and the report should not be represented as causal proof of risk reduction.

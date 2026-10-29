@@ -1,0 +1,8 @@
+{
+  "firestore": [
+    {
+      "database": "axionai",
+      "rules": "firestore.rules"
+    }
+  ]
+}

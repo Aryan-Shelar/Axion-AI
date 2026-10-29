@@ -3,10 +3,33 @@ dist/
 .env
 .env.*
 !.env.example
+backend/.env
+backend/.venv/
+backend/serviceAccountKey.json
+backend/__pycache__/
+*.py[cod]
 .vscode/
 .DS_Store
 Thumbs.db
-backend/serviceAccountKey.json
-backend/.env
-backend/.venv/
-backend/__pycache__/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*service-account*.json
+*service_account*.json
+*credentials*.json
+
+# Node
+node_modules/
+dist/
+
+# Local databases and logs
+*.log
